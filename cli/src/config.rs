@@ -1,8 +1,11 @@
+use crate::ConfigOverride;
+use anchor_client::Cluster;
 use anchor_syn::idl::Idl;
 use anyhow::{anyhow, Error, Result};
 use serde::{Deserialize, Serialize};
-use serum_common::client::Cluster;
+use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
@@ -11,14 +14,39 @@ use std::str::FromStr;
 
 #[derive(Debug, Default)]
 pub struct Config {
-    pub cluster: Cluster,
-    pub wallet: WalletPath,
+    pub provider: ProviderConfig,
+    pub clusters: ClustersConfig,
     pub test: Option<Test>,
 }
 
+#[derive(Debug, Default)]
+pub struct ProviderConfig {
+    pub cluster: Cluster,
+    pub wallet: WalletPath,
+}
+
+pub type ClustersConfig = BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>;
+
 impl Config {
+    pub fn discover(
+        cfg_override: &ConfigOverride,
+    ) -> Result<Option<(Self, PathBuf, Option<PathBuf>)>> {
+        Config::_discover().map(|opt| {
+            opt.map(|(mut cfg, cfg_path, cargo_toml)| {
+                if let Some(cluster) = cfg_override.cluster.clone() {
+                    cfg.provider.cluster = cluster;
+                }
+
+                if let Some(wallet) = cfg_override.wallet.clone() {
+                    cfg.provider.wallet = wallet;
+                }
+                (cfg, cfg_path, cargo_toml)
+            })
+        })
+    }
+
     // Searches all parent directories for an Anchor.toml file.
-    pub fn discover() -> Result<Option<(Self, PathBuf, Option<PathBuf>)>> {
+    fn _discover() -> Result<Option<(Self, PathBuf, Option<PathBuf>)>> {
         // Set to true if we ever see a Cargo.toml file when traversing the
         // parent directories.
         let mut cargo_toml = None;
@@ -61,7 +89,7 @@ impl Config {
     }
 
     pub fn wallet_kp(&self) -> Result<Keypair> {
-        solana_sdk::signature::read_keypair_file(&self.wallet.to_string())
+        solana_sdk::signature::read_keypair_file(&self.provider.wallet.to_string())
             .map_err(|_| anyhow!("Unable to read keypair file"))
     }
 }
@@ -70,17 +98,34 @@ impl Config {
 // into base 58 strings.
 #[derive(Debug, Serialize, Deserialize)]
 struct _Config {
+    provider: Provider,
+    test: Option<Test>,
+    clusters: Option<BTreeMap<String, BTreeMap<String, String>>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Provider {
     cluster: String,
     wallet: String,
-    test: Option<Test>,
 }
 
 impl ToString for Config {
     fn to_string(&self) -> String {
+        let clusters = {
+            let c = ser_clusters(&self.clusters);
+            if c.len() == 0 {
+                None
+            } else {
+                Some(c)
+            }
+        };
         let cfg = _Config {
-            cluster: format!("{}", self.cluster),
-            wallet: self.wallet.to_string(),
+            provider: Provider {
+                cluster: format!("{}", self.provider.cluster),
+                wallet: self.provider.wallet.to_string(),
+            },
             test: self.test.clone(),
+            clusters,
         };
 
         toml::to_string(&cfg).expect("Must be well formed")
@@ -94,11 +139,56 @@ impl FromStr for Config {
         let cfg: _Config = toml::from_str(s)
             .map_err(|e| anyhow::format_err!("Unable to deserialize config: {}", e.to_string()))?;
         Ok(Config {
-            cluster: cfg.cluster.parse()?,
-            wallet: shellexpand::tilde(&cfg.wallet).parse()?,
+            provider: ProviderConfig {
+                cluster: cfg.provider.cluster.parse()?,
+                wallet: shellexpand::tilde(&cfg.provider.wallet).parse()?,
+            },
             test: cfg.test,
+            clusters: cfg
+                .clusters
+                .map_or(Ok(BTreeMap::new()), |c| deser_clusters(c))?,
         })
     }
+}
+
+fn ser_clusters(
+    clusters: &BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>,
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    clusters
+        .iter()
+        .map(|(cluster, programs)| {
+            let cluster = cluster.to_string();
+            let programs = programs
+                .iter()
+                .map(|(name, deployment)| (name.clone(), deployment.program_id.to_string()))
+                .collect::<BTreeMap<String, String>>();
+            (cluster, programs)
+        })
+        .collect::<BTreeMap<String, BTreeMap<String, String>>>()
+}
+
+fn deser_clusters(
+    clusters: BTreeMap<String, BTreeMap<String, String>>,
+) -> Result<BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>> {
+    clusters
+        .iter()
+        .map(|(cluster, programs)| {
+            let cluster: Cluster = cluster.parse()?;
+            let programs = programs
+                .iter()
+                .map(|(name, program_id)| {
+                    Ok((
+                        name.clone(),
+                        ProgramDeployment {
+                            name: name.clone(),
+                            program_id: program_id.parse()?,
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<String, ProgramDeployment>>>()?;
+            Ok((cluster, programs))
+        })
+        .collect::<Result<BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>>>()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +210,7 @@ pub fn read_all_programs() -> Result<Vec<Program>> {
     let mut r = vec![];
     for f in files {
         let path = f?.path();
-        let idl = anchor_syn::parser::file::parse(path.join("src/lib.rs"))?;
+        let idl = anchor_syn::idl::file::parse(path.join("src/lib.rs"))?;
         let lib_name = extract_lib_name(&path.join("Cargo.toml"))?;
         r.push(Program {
             lib_name,
@@ -175,6 +265,18 @@ impl Program {
             .expect("Must have current dir")
             .join(format!("target/deploy/{}.so", self.lib_name))
     }
+}
+
+#[derive(Debug, Default)]
+pub struct ProgramDeployment {
+    pub name: String,
+    pub program_id: Pubkey,
+}
+
+pub struct ProgramWorkspace {
+    pub name: String,
+    pub program_id: Pubkey,
+    pub idl: Idl,
 }
 
 serum_common::home_path!(WalletPath, ".config/solana/id.json");

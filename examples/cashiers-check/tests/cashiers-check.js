@@ -28,8 +28,8 @@ describe("cashiers-check", () => {
     );
   });
 
-  const check = new anchor.web3.Account();
-  const vault = new anchor.web3.Account();
+  const check = anchor.web3.Keypair.generate();
+  const vault = anchor.web3.Keypair.generate();
 
   let checkSigner = null;
 
@@ -63,7 +63,7 @@ describe("cashiers-check", () => {
       ],
     });
 
-    const checkAccount = await program.account.check(check.publicKey);
+    const checkAccount = await program.account.check.fetch(check.publicKey);
     assert.ok(checkAccount.from.equals(god));
     assert.ok(checkAccount.to.equals(receiver));
     assert.ok(checkAccount.amount.eq(new anchor.BN(100)));
@@ -91,7 +91,7 @@ describe("cashiers-check", () => {
       },
     });
 
-    const checkAccount = await program.account.check(check.publicKey);
+    const checkAccount = await program.account.check.fetch(check.publicKey);
     assert.ok(checkAccount.burned === true);
 
     let vaultAccount = await serumCmn.getTokenAccount(

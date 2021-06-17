@@ -64,6 +64,24 @@ describe("token", () => {
     const toAccount = await getTokenAccount(provider, to);
     assert.ok(toAccount.amount.eq(new anchor.BN(1)));
   });
+
+  it("Set new mint authority", async () => {
+    const newMintAuthority = anchor.web3.Keypair.generate();
+    await program.rpc.proxySetAuthority(
+      { mintTokens: {} },
+      newMintAuthority.publicKey,
+      {
+        accounts: {
+          accountOrMint: mint,
+          currentAuthority: provider.wallet.publicKey,
+          tokenProgram: TokenInstructions.TOKEN_PROGRAM_ID,
+        },
+      }
+    );
+
+    const mintInfo = await getMintInfo(provider, mint);
+    assert.ok(mintInfo.mintAuthority.equals(newMintAuthority.publicKey));
+  });
 });
 
 // SPL token client boilerplate for test initialization. Everything below here is
@@ -82,11 +100,15 @@ async function getTokenAccount(provider, addr) {
   return await serumCmn.getTokenAccount(provider, addr);
 }
 
+async function getMintInfo(provider, mintAddr) {
+  return await serumCmn.getMintInfo(provider, mintAddr);
+}
+
 async function createMint(provider, authority) {
   if (authority === undefined) {
     authority = provider.wallet.publicKey;
   }
-  const mint = new anchor.web3.Account();
+  const mint = anchor.web3.Keypair.generate();
   const instructions = await createMintInstructions(
     provider,
     authority,
@@ -120,7 +142,7 @@ async function createMintInstructions(provider, authority, mint) {
 }
 
 async function createTokenAccount(provider, mint, owner) {
-  const vault = new anchor.web3.Account();
+  const vault = anchor.web3.Keypair.generate();
   const tx = new anchor.web3.Transaction();
   tx.add(
     ...(await createTokenAccountInstrs(provider, vault.publicKey, mint, owner))

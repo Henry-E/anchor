@@ -26,7 +26,7 @@ We start with the program that will be called by another program, the puppet.
 If you've followed along the other tutorials, this should be straight forward. We have
 a program with two instructions, `initialize`, which does nothing other than the
 initialization of the account (remember, the program *transparently* prepends a unique 8
-byte discriminator the first time an account is used). and `set_data`, which takes a previously
+byte discriminator the first time an account is used), and `set_data`, which takes a previously
 initialized account, and sets its data field.
 
 Now, suppose we wanted to call `set_data` from another program.
@@ -65,12 +65,15 @@ For more background on signing with program derived addresses, see the official 
 
 ## Return values
 
-Solana currently has no way to return values from CPI, alas. However, one can approximate this
+Solana currently has no way to return values from CPI, alas. However, you can approximate this
 by having the callee write return values to an account and the caller read that account to
 retrieve the return value. In future work, Anchor should do this transparently.
 
 ## Conclusion
 
-That's it for the introductory tutorials for Anchor. For more, see the `examples/` directory in the
-[repository](https://github.com/project-serum/anchor). For feature requests or bugs, GitHub issues
-are appreciated. For direct questions or support, join the [Serum Discord](https://discord.com/channels/739225212658122886/752530209848295555).
+Now that you can have your programs call other programs, you should be able to access all the work being done by other developers in your own applications! 
+
+## Next Steps
+
+Up until now, we've treated programs on Solana as stateless. In the next tutorial we will learn how to add a global state to our program.
+

@@ -7,7 +7,11 @@ use std::num::NonZeroU64;
 
 pub use serum_dex;
 
+#[cfg(not(feature = "devnet"))]
 anchor_lang::solana_program::declare_id!("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
+
+#[cfg(feature = "devnet")]
+anchor_lang::solana_program::declare_id!("DESVgJVGajEgKGXhb6XmqDHGz3VjdgP7rEVESBgxmroY");
 
 pub fn new_order_v3<'info>(
     ctx: CpiContext<'_, '_, '_, 'info, NewOrderV3<'info>>,
@@ -78,6 +82,41 @@ pub fn settle_funds<'info>(
     Ok(())
 }
 
+pub fn init_open_orders<'info>(
+    ctx: CpiContext<'_, '_, '_, 'info, InitOpenOrders<'info>>,
+) -> ProgramResult {
+    let ix = serum_dex::instruction::init_open_orders(
+        &ID,
+        ctx.accounts.open_orders.key,
+        ctx.accounts.authority.key,
+        ctx.accounts.market.key,
+    )?;
+    solana_program::program::invoke_signed(
+        &ix,
+        &ToAccountInfos::to_account_infos(&ctx),
+        ctx.signer_seeds,
+    )?;
+    Ok(())
+}
+
+pub fn close_open_orders<'info>(
+    ctx: CpiContext<'_, '_, '_, 'info, CloseOpenOrders<'info>>,
+) -> ProgramResult {
+    let ix = serum_dex::instruction::close_open_orders(
+        &ID,
+        ctx.accounts.open_orders.key,
+        ctx.accounts.authority.key,
+        ctx.accounts.destination.key,
+        ctx.accounts.market.key,
+    )?;
+    solana_program::program::invoke_signed(
+        &ix,
+        &ToAccountInfos::to_account_infos(&ctx),
+        ctx.signer_seeds,
+    )?;
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct NewOrderV3<'info> {
     pub market: AccountInfo<'info>,
@@ -111,4 +150,20 @@ pub struct SettleFunds<'info> {
     pub pc_wallet: AccountInfo<'info>,
     pub vault_signer: AccountInfo<'info>,
     pub token_program: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitOpenOrders<'info> {
+    pub open_orders: AccountInfo<'info>,
+    pub authority: AccountInfo<'info>,
+    pub market: AccountInfo<'info>,
+    pub rent: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+pub struct CloseOpenOrders<'info> {
+    pub open_orders: AccountInfo<'info>,
+    pub authority: AccountInfo<'info>,
+    pub destination: AccountInfo<'info>,
+    pub market: AccountInfo<'info>,
 }

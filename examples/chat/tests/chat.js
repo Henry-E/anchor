@@ -9,7 +9,7 @@ describe("chat", () => {
   const program = anchor.workspace.Chat;
 
   // Chat room account.
-  const chatRoom = new anchor.web3.Account();
+  const chatRoom = anchor.web3.Keypair.generate();
 
   it("Creates a chat room", async () => {
     // Add your test here.
@@ -25,7 +25,7 @@ describe("chat", () => {
       signers: [chatRoom],
     });
 
-    const chat = await program.account.chatRoom(chatRoom.publicKey);
+    const chat = await program.account.chatRoom.fetch(chatRoom.publicKey);
     const name = new TextDecoder("utf-8").decode(new Uint8Array(chat.name));
     assert.ok(name.startsWith("Test Chat")); // [u8; 280] => trailing zeros.
     assert.ok(chat.messages.length === 33607);
@@ -76,7 +76,7 @@ describe("chat", () => {
     }
 
     // Check the chat room state is as expected.
-    const chat = await program.account.chatRoom(chatRoom.publicKey);
+    const chat = await program.account.chatRoom.fetch(chatRoom.publicKey);
     const name = new TextDecoder("utf-8").decode(new Uint8Array(chat.name));
     assert.ok(name.startsWith("Test Chat")); // [u8; 280] => trailing zeros.
     assert.ok(chat.messages.length === 33607);
@@ -89,7 +89,7 @@ describe("chat", () => {
         assert.ok(msg.from.equals(user));
         assert.ok(data.startsWith(messages[idx]));
       } else {
-        assert.ok(new anchor.web3.PublicKey());
+        assert.ok(anchor.web3.PublicKey.default);
         assert.ok(
           JSON.stringify(msg.data) === JSON.stringify(new Array(280).fill(0))
         );

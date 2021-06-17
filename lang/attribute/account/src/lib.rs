@@ -57,14 +57,24 @@ pub fn account(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let namespace = args.to_string().replace("\"", "");
-    let is_zero_copy = match args.into_iter().next() {
-        None => false,
-        Some(tt) => match tt {
-            proc_macro::TokenTree::Literal(_) => false,
-            _ => namespace == "zero_copy",
-        },
-    };
+    let mut namespace = "".to_string();
+    let mut is_zero_copy = false;
+    if args.to_string().split(",").collect::<Vec<_>>().len() > 2 {
+        panic!("Only two args are allowed to the account attribute.")
+    }
+    for arg in args.to_string().split(",") {
+        let ns = arg
+            .to_string()
+            .replace("\"", "")
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if ns == "zero_copy" {
+            is_zero_copy = true;
+        } else {
+            namespace = ns;
+        }
+    }
 
     let account_strct = parse_macro_input!(input as syn::ItemStruct);
     let account_name = &account_strct.ident;
@@ -73,7 +83,7 @@ pub fn account(
         // Namespace the discriminator to prevent collisions.
         let discriminator_preimage = {
             // For now, zero copy accounts can't be namespaced.
-            if is_zero_copy || namespace.is_empty() {
+            if namespace.is_empty() {
                 format!("account:{}", account_name.to_string())
             } else {
                 format!("{}:{}", namespace, account_name.to_string())
@@ -109,11 +119,11 @@ pub fn account(
                 impl anchor_lang::AccountDeserialize for #account_name {
                     fn try_deserialize(buf: &mut &[u8]) -> std::result::Result<Self, ProgramError> {
                         if buf.len() < #discriminator.len() {
-                            return Err(ProgramError::AccountDataTooSmall);
+                            return Err(anchor_lang::__private::ErrorCode::AccountDiscriminatorNotFound.into());
                         }
                         let given_disc = &buf[..8];
                         if &#discriminator != given_disc {
-                            return Err(ProgramError::InvalidInstructionData);
+                            return Err(anchor_lang::__private::ErrorCode::AccountDiscriminatorMismatch.into());
                         }
                         Self::try_deserialize_unchecked(buf)
                     }
@@ -134,12 +144,12 @@ pub fn account(
 
                 impl anchor_lang::AccountSerialize for #account_name {
                     fn try_serialize<W: std::io::Write>(&self, writer: &mut W) -> std::result::Result<(), ProgramError> {
-                        writer.write_all(&#discriminator).map_err(|_| ProgramError::InvalidAccountData)?;
+                        writer.write_all(&#discriminator).map_err(|_| anchor_lang::__private::ErrorCode::AccountDidNotSerialize)?;
                         AnchorSerialize::serialize(
                             self,
                             writer
                         )
-                            .map_err(|_| ProgramError::InvalidAccountData)?;
+                            .map_err(|_| anchor_lang::__private::ErrorCode::AccountDidNotSerialize)?;
                         Ok(())
                     }
                 }
@@ -147,11 +157,11 @@ pub fn account(
                 impl anchor_lang::AccountDeserialize for #account_name {
                     fn try_deserialize(buf: &mut &[u8]) -> std::result::Result<Self, ProgramError> {
                         if buf.len() < #discriminator.len() {
-                            return Err(ProgramError::AccountDataTooSmall);
+                            return Err(anchor_lang::__private::ErrorCode::AccountDiscriminatorNotFound.into());
                         }
                         let given_disc = &buf[..8];
                         if &#discriminator != given_disc {
-                            return Err(ProgramError::InvalidInstructionData);
+                            return Err(anchor_lang::__private::ErrorCode::AccountDiscriminatorMismatch.into());
                         }
                         Self::try_deserialize_unchecked(buf)
                     }
@@ -159,7 +169,7 @@ pub fn account(
                     fn try_deserialize_unchecked(buf: &mut &[u8]) -> std::result::Result<Self, ProgramError> {
                         let mut data: &[u8] = &buf[8..];
                         AnchorDeserialize::deserialize(&mut data)
-                            .map_err(|_| ProgramError::InvalidAccountData)
+                            .map_err(|_| anchor_lang::__private::ErrorCode::AccountDidNotDeserialize.into())
                     }
                 }
 
@@ -228,7 +238,6 @@ pub fn associated(
     let args: proc_macro2::TokenStream = args.into();
     proc_macro::TokenStream::from(quote! {
         #[anchor_lang::account(#args)]
-        #[derive(Default)]
         #account_strct
 
         impl anchor_lang::Bump for #account_name {
@@ -317,8 +326,8 @@ pub fn zero_copy(
     let account_strct = parse_macro_input!(item as syn::ItemStruct);
 
     proc_macro::TokenStream::from(quote! {
-            #[derive(anchor_lang::__private::ZeroCopyAccessor, Copy, Clone)]
-            #[repr(packed)]
-            #account_strct
+        #[derive(anchor_lang::__private::ZeroCopyAccessor, Copy, Clone)]
+        #[repr(packed)]
+        #account_strct
     })
 }

@@ -1,31 +1,63 @@
 import BN from "bn.js";
 import * as web3 from "@solana/web3.js";
-import Provider, { NodeWallet as Wallet } from "./provider";
-import { Program } from "./program";
-import Coder from "./coder";
+import Provider, {
+  getProvider,
+  setProvider,
+  NodeWallet as Wallet,
+} from "./provider";
+import Coder, {
+  InstructionCoder,
+  EventCoder,
+  StateCoder,
+  TypesCoder,
+} from "./coder";
+import { Instruction } from "./coder/instruction";
 import { Idl } from "./idl";
 import workspace from "./workspace";
-import utils from "./utils";
-import { ProgramAccount } from "./rpc";
-
-let _provider: Provider | null = null;
-
-function setProvider(provider: Provider) {
-  _provider = provider;
-}
-
-function getProvider(): Provider {
-  if (_provider === null) {
-    return Provider.local();
-  }
-  return _provider;
-}
+import * as utils from "./utils";
+import { Program } from "./program";
+import { Address } from "./program/common";
+import { Event } from "./program/event";
+import {
+  ProgramAccount,
+  AccountNamespace,
+  AccountClient,
+  StateClient,
+  RpcNamespace,
+  RpcFn,
+  SimulateNamespace,
+  SimulateFn,
+  TransactionNamespace,
+  TransactionFn,
+  InstructionNamespace,
+  InstructionFn,
+} from "./program/namespace";
+import { Context, Accounts } from "./program/context";
 
 export {
   workspace,
   Program,
+  AccountNamespace,
+  AccountClient,
+  StateClient,
+  RpcNamespace,
+  RpcFn,
+  SimulateNamespace,
+  SimulateFn,
+  TransactionNamespace,
+  TransactionFn,
+  InstructionNamespace,
+  InstructionFn,
   ProgramAccount,
+  Context,
+  Accounts,
   Coder,
+  InstructionCoder,
+  EventCoder,
+  StateCoder,
+  TypesCoder,
+  Event,
+  Instruction,
   setProvider,
   getProvider,
   Provider,
@@ -34,4 +66,5 @@ export {
   Idl,
   utils,
   Wallet,
+  Address,
 };

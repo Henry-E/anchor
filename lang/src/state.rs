@@ -1,3 +1,4 @@
+use crate::error::ErrorCode;
 use crate::{
     AccountDeserialize, AccountSerialize, Accounts, AccountsExit, CpiAccount, ToAccountInfo,
     ToAccountInfos, ToAccountMetas,
@@ -45,10 +46,7 @@ impl<'a, T: AccountSerialize + AccountDeserialize + Clone> ProgramState<'a, T> {
     }
 
     pub fn address(program_id: &Pubkey) -> Pubkey {
-        let (base, _nonce) = Pubkey::find_program_address(&[], program_id);
-        let seed = Self::seed();
-        let owner = program_id;
-        Pubkey::create_with_seed(&base, seed, owner).unwrap()
+        address(program_id)
     }
 }
 
@@ -60,22 +58,23 @@ where
     fn try_accounts(
         program_id: &Pubkey,
         accounts: &mut &[AccountInfo<'info>],
+        _ix_data: &[u8],
     ) -> Result<Self, ProgramError> {
         if accounts.is_empty() {
-            return Err(ProgramError::NotEnoughAccountKeys);
+            return Err(ErrorCode::AccountNotEnoughKeys.into());
         }
         let account = &accounts[0];
         *accounts = &accounts[1..];
 
         if account.key != &Self::address(program_id) {
             solana_program::msg!("Invalid state address");
-            return Err(ProgramError::Custom(1)); // todo: proper error.
+            return Err(ErrorCode::StateInvalidAddress.into());
         }
 
         let pa = ProgramState::try_from(account)?;
         if pa.inner.info.owner != program_id {
             solana_program::msg!("Invalid state owner");
-            return Err(ProgramError::Custom(1)); // todo: proper error.
+            return Err(ErrorCode::AccountNotProgramOwned.into());
         }
         Ok(pa)
     }
@@ -144,4 +143,11 @@ impl<'info, T: AccountSerialize + AccountDeserialize + Clone> AccountsExit<'info
         self.inner.account.try_serialize(&mut cursor)?;
         Ok(())
     }
+}
+
+pub fn address(program_id: &Pubkey) -> Pubkey {
+    let (base, _nonce) = Pubkey::find_program_address(&[], program_id);
+    let seed = PROGRAM_STATE_SEED;
+    let owner = program_id;
+    Pubkey::create_with_seed(&base, seed, owner).unwrap()
 }

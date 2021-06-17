@@ -41,7 +41,7 @@ pub fn state(
                     fn size(&self) -> std::result::Result<u64, anchor_lang::solana_program::program_error::ProgramError> {
                         Ok(8 + self
                            .try_to_vec()
-                           .map_err(|_| ProgramError::Custom(1))?
+                           .map_err(|_| anchor_lang::__private::ErrorCode::AccountDidNotSerialize)?
                            .len() as u64)
                     }
                 }
@@ -71,8 +71,8 @@ pub fn state(
     };
 
     let attribute = match is_zero_copy {
-        false => quote! {#[account]},
-        true => quote! {#[account(zero_copy)]},
+        false => quote! {#[account("state")]},
+        true => quote! {#[account("state", zero_copy)]},
     };
 
     proc_macro::TokenStream::from(quote! {

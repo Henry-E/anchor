@@ -12,24 +12,14 @@ describe("basic-3", () => {
     const puppet = anchor.workspace.Puppet;
 
     // Initialize a new puppet account.
-    const newPuppetAccount = new anchor.web3.Account();
+    const newPuppetAccount = anchor.web3.Keypair.generate();
     const tx = await puppet.rpc.initialize({
       accounts: {
         puppet: newPuppetAccount.publicKey,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       },
       signers: [newPuppetAccount],
-      instructions: [
-        anchor.web3.SystemProgram.createAccount({
-          fromPubkey: provider.wallet.publicKey,
-          newAccountPubkey: newPuppetAccount.publicKey,
-          space: 8 + 8, // Add 8 for the account discriminator.
-          lamports: await provider.connection.getMinimumBalanceForRentExemption(
-            8 + 8
-          ),
-          programId: puppet.programId,
-        }),
-      ],
+      instructions: [await puppet.account.puppet.createInstruction(newPuppetAccount)],
     });
 
     // Invoke the puppet master to perform a CPI to the puppet.
@@ -41,7 +31,7 @@ describe("basic-3", () => {
     });
 
     // Check the state updated.
-    puppetAccount = await puppet.account.puppet(newPuppetAccount.publicKey);
+    puppetAccount = await puppet.account.puppet.fetch(newPuppetAccount.publicKey);
     assert.ok(puppetAccount.data.eq(new anchor.BN(111)));
   });
 });

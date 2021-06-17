@@ -8,7 +8,7 @@ describe("multisig", () => {
   const program = anchor.workspace.Multisig;
 
   it("Tests the multisig program", async () => {
-    const multisig = new anchor.web3.Account();
+    const multisig = anchor.web3.Keypair.generate();
     const [
       multisigSigner,
       nonce,
@@ -18,10 +18,10 @@ describe("multisig", () => {
     );
     const multisigSize = 200; // Big enough.
 
-    const ownerA = new anchor.web3.Account();
-    const ownerB = new anchor.web3.Account();
-    const ownerC = new anchor.web3.Account();
-    const ownerD = new anchor.web3.Account();
+    const ownerA = anchor.web3.Keypair.generate();
+    const ownerB = anchor.web3.Keypair.generate();
+    const ownerC = anchor.web3.Keypair.generate();
+    const ownerD = anchor.web3.Keypair.generate();
     const owners = [ownerA.publicKey, ownerB.publicKey, ownerC.publicKey];
 
     const threshold = new anchor.BN(2);
@@ -39,7 +39,7 @@ describe("multisig", () => {
       signers: [multisig],
     });
 
-    let multisigAccount = await program.account.multisig(multisig.publicKey);
+    let multisigAccount = await program.account.multisig.fetch(multisig.publicKey);
 
     assert.equal(multisigAccount.nonce, nonce);
     assert.ok(multisigAccount.threshold.eq(new anchor.BN(2)));
@@ -63,7 +63,7 @@ describe("multisig", () => {
         owners: newOwners,
     });
 
-    const transaction = new anchor.web3.Account();
+    const transaction = anchor.web3.Keypair.generate();
     const txSize = 1000; // Big enough, cuz I'm lazy.
     await program.rpc.createTransaction(pid, accounts, data, {
       accounts: {
@@ -81,7 +81,7 @@ describe("multisig", () => {
       signers: [transaction, ownerA],
     });
 
-    const txAccount = await program.account.transaction(transaction.publicKey);
+    const txAccount = await program.account.transaction.fetch(transaction.publicKey);
 
     assert.ok(txAccount.programId.equals(pid));
     assert.deepEqual(txAccount.accounts, accounts);
@@ -89,7 +89,7 @@ describe("multisig", () => {
     assert.ok(txAccount.multisig.equals(multisig.publicKey));
     assert.equal(txAccount.didExecute, false);
 
-    // Other owner approves transactoin.
+    // Other owner approves transaction.
     await program.rpc.approve({
       accounts: {
         multisig: multisig.publicKey,
@@ -99,7 +99,7 @@ describe("multisig", () => {
       signers: [ownerB],
     });
 
-    // Now that we've reached the threshold, send the transactoin.
+    // Now that we've reached the threshold, send the transaction.
     await program.rpc.executeTransaction({
       accounts: {
         multisig: multisig.publicKey,
@@ -124,7 +124,7 @@ describe("multisig", () => {
         }),
     });
 
-    multisigAccount = await program.account.multisig(multisig.publicKey);
+    multisigAccount = await program.account.multisig.fetch(multisig.publicKey);
 
     assert.equal(multisigAccount.nonce, nonce);
     assert.ok(multisigAccount.threshold.eq(new anchor.BN(2)));

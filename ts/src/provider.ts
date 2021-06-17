@@ -1,14 +1,27 @@
 import {
   Connection,
-  Account,
+  Keypair,
+  Signer,
   PublicKey,
   Transaction,
   TransactionSignature,
   ConfirmOptions,
   sendAndConfirmRawTransaction,
+  RpcResponseAndContext,
+  SimulatedTransactionResponse,
+  Commitment,
 } from "@solana/web3.js";
 
+/**
+ * The network and wallet context used to send transactions paid for and signed
+ * by the provider.
+ */
 export default class Provider {
+  /**
+   * @param connection The cluster connection where the program is deployed.
+   * @param wallet     The wallet used to pay for and sign all transactions.
+   * @param opts       Transaction confirmation options to use by default.
+   */
   constructor(
     readonly connection: Connection,
     readonly wallet: Wallet,
@@ -22,18 +35,30 @@ export default class Provider {
     };
   }
 
-  // Node only api.
+  /**
+   * Returns a `Provider` with a wallet read from the local filesystem.
+   *
+   * @param url  The network cluster url.
+   * @param opts The default transaction confirmation options.
+   *
+   * (This api is for Node only.)
+   */
   static local(url?: string, opts?: ConfirmOptions): Provider {
-    opts = opts || Provider.defaultOptions();
+    opts = opts ?? Provider.defaultOptions();
     const connection = new Connection(
-      url || "http://localhost:8899",
+      url ?? "http://localhost:8899",
       opts.preflightCommitment
     );
     const wallet = NodeWallet.local();
     return new Provider(connection, wallet, opts);
   }
 
-  // Node only api.
+  /**
+   * Returns a `Provider` read from the `ANCHOR_PROVIDER_URL` envirnment
+   * variable
+   *
+   * (This api is for Node only.)
+   */
   static env(): Provider {
     const process = require("process");
     const url = process.env.ANCHOR_PROVIDER_URL;
@@ -47,9 +72,17 @@ export default class Provider {
     return new Provider(connection, wallet, options);
   }
 
+  /**
+   * Sends the given transaction, paid for and signed by the provider's wallet.
+   *
+   * @param tx      The transaction to send.
+   * @param signers The set of signers in addition to the provdier wallet that
+   *                will sign the transaction.
+   * @param opts    Transaction confirmation options.
+   */
   async send(
     tx: Transaction,
-    signers?: Array<Account | undefined>,
+    signers?: Array<Signer | undefined>,
     opts?: ConfirmOptions
   ): Promise<TransactionSignature> {
     if (signers === undefined) {
@@ -59,20 +92,17 @@ export default class Provider {
       opts = this.opts;
     }
 
-    const signerKps = signers.filter((s) => s !== undefined) as Array<Account>;
-    const signerPubkeys = [this.wallet.publicKey].concat(
-      signerKps.map((s) => s.publicKey)
-    );
-
-    tx.setSigners(...signerPubkeys);
+    tx.feePayer = this.wallet.publicKey;
     tx.recentBlockhash = (
       await this.connection.getRecentBlockhash(opts.preflightCommitment)
     ).blockhash;
 
     await this.wallet.signTransaction(tx);
-    signerKps.forEach((kp) => {
-      tx.partialSign(kp);
-    });
+    signers
+      .filter((s) => s !== undefined)
+      .forEach((kp) => {
+        tx.partialSign(kp);
+      });
 
     const rawTx = tx.serialize();
 
@@ -85,6 +115,9 @@ export default class Provider {
     return txId;
   }
 
+  /**
+   * Similar to `send`, but for an array of transactions and signers.
+   */
   async sendAll(
     reqs: Array<SendTxRequest>,
     opts?: ConfirmOptions
@@ -104,18 +137,14 @@ export default class Provider {
         signers = [];
       }
 
-      const signerKps = signers.filter(
-        (s) => s !== undefined
-      ) as Array<Account>;
-      const signerPubkeys = [this.wallet.publicKey].concat(
-        signerKps.map((s) => s.publicKey)
-      );
-
-      tx.setSigners(...signerPubkeys);
+      tx.feePayer = this.wallet.publicKey;
       tx.recentBlockhash = blockhash.blockhash;
-      signerKps.forEach((kp) => {
-        tx.partialSign(kp);
-      });
+
+      signers
+        .filter((s) => s !== undefined)
+        .forEach((kp) => {
+          tx.partialSign(kp);
+        });
 
       return tx;
     });
@@ -134,24 +163,71 @@ export default class Provider {
 
     return sigs;
   }
+
+  /**
+   * Simulates the given transaction, returning emitted logs from execution.
+   *
+   * @param tx      The transaction to send.
+   * @param signers The set of signers in addition to the provdier wallet that
+   *                will sign the transaction.
+   * @param opts    Transaction confirmation options.
+   */
+  async simulate(
+    tx: Transaction,
+    signers?: Array<Signer | undefined>,
+    opts?: ConfirmOptions
+  ): Promise<RpcResponseAndContext<SimulatedTransactionResponse>> {
+    if (signers === undefined) {
+      signers = [];
+    }
+    if (opts === undefined) {
+      opts = this.opts;
+    }
+
+    tx.feePayer = this.wallet.publicKey;
+    tx.recentBlockhash = (
+      await this.connection.getRecentBlockhash(
+        opts.preflightCommitment ?? this.opts.preflightCommitment
+      )
+    ).blockhash;
+
+    await this.wallet.signTransaction(tx);
+    signers
+      .filter((s) => s !== undefined)
+      .forEach((kp) => {
+        tx.partialSign(kp);
+      });
+
+    return await simulateTransaction(
+      this.connection,
+      tx,
+      opts.commitment ?? this.opts.commitment
+    );
+  }
 }
 
 export type SendTxRequest = {
   tx: Transaction;
-  signers: Array<Account | undefined>;
+  signers: Array<Signer | undefined>;
 };
 
+/**
+ * Wallet interface for objects that can be used to sign provider transactions.
+ */
 export interface Wallet {
   signTransaction(tx: Transaction): Promise<Transaction>;
   signAllTransactions(txs: Transaction[]): Promise<Transaction[]>;
   publicKey: PublicKey;
 }
 
+/**
+ * Node only wallet.
+ */
 export class NodeWallet implements Wallet {
-  constructor(readonly payer: Account) {}
+  constructor(readonly payer: Keypair) {}
 
   static local(): NodeWallet {
-    const payer = new Account(
+    const payer = Keypair.fromSecretKey(
       Buffer.from(
         JSON.parse(
           require("fs").readFileSync(
@@ -182,3 +258,50 @@ export class NodeWallet implements Wallet {
     return this.payer.publicKey;
   }
 }
+
+// Copy of Connection.simulateTransaction that takes a commitment parameter.
+async function simulateTransaction(
+  connection: Connection,
+  transaction: Transaction,
+  commitment: Commitment
+): Promise<RpcResponseAndContext<SimulatedTransactionResponse>> {
+  // @ts-ignore
+  transaction.recentBlockhash = await connection._recentBlockhash(
+    // @ts-ignore
+    connection._disableBlockhashCaching
+  );
+
+  const signData = transaction.serializeMessage();
+  // @ts-ignore
+  const wireTransaction = transaction._serialize(signData);
+  const encodedTransaction = wireTransaction.toString("base64");
+  const config: any = { encoding: "base64", commitment };
+  const args = [encodedTransaction, config];
+
+  // @ts-ignore
+  const res = await connection._rpcRequest("simulateTransaction", args);
+  if (res.error) {
+    throw new Error("failed to simulate transaction: " + res.error.message);
+  }
+  return res.result;
+}
+
+/**
+ * Sets the default provider on the client.
+ */
+export function setProvider(provider: Provider) {
+  _provider = provider;
+}
+
+/**
+ * Returns the default provider being used by the client.
+ */
+export function getProvider(): Provider {
+  if (_provider === null) {
+    return Provider.local();
+  }
+  return _provider;
+}
+
+// Global provider used as the default when a provider is not given.
+let _provider: Provider | null = null;

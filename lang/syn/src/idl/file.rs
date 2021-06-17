@@ -1,6 +1,6 @@
 use crate::idl::*;
 use crate::parser::{self, accounts, error, program};
-use crate::{AccountsStruct, StateIx};
+use crate::{AccountField, AccountsStruct, StateIx};
 use anyhow::Result;
 use heck::MixedCase;
 use quote::ToTokens;
@@ -11,6 +11,8 @@ use std::iter::FromIterator;
 use std::path::Path;
 
 const DERIVE_NAME: &str = "Accounts";
+// TODO: sharee this with `anchor_lang` crate.
+const ERROR_CODE_OFFSET: u32 = 300;
 
 // Parse an entire interface file.
 pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
@@ -21,7 +23,7 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
 
     let f = syn::parse_file(&src).expect("Unable to parse file");
 
-    let p = program::parse(parse_program_mod(&f));
+    let p = program::parse(parse_program_mod(&f))?;
 
     let accs = parse_account_derives(&f);
 
@@ -52,8 +54,8 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                                     .collect::<Vec<_>>();
                                 let accounts_strct =
                                     accs.get(&method.anchor_ident.to_string()).unwrap();
-                                let accounts = accounts_strct.idl_accounts(&accs);
-                                IdlStateMethod {
+                                let accounts = idl_accounts(accounts_strct, &accs);
+                                IdlInstruction {
                                     name,
                                     args,
                                     accounts,
@@ -70,7 +72,7 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                         .iter()
                         .filter(|arg| match arg {
                             syn::FnArg::Typed(pat_ty) => {
-                                // TODO: this filtering should be donein the parser.
+                                // TODO: this filtering should be done in the parser.
                                 let mut arg_str = parser::tts_to_string(&pat_ty.ty);
                                 arg_str.retain(|c| !c.is_whitespace());
                                 !arg_str.starts_with("Context<")
@@ -91,8 +93,8 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                         })
                         .collect();
                     let accounts_strct = accs.get(&anchor_ident.to_string()).unwrap();
-                    let accounts = accounts_strct.idl_accounts(&accs);
-                    IdlStateMethod {
+                    let accounts = idl_accounts(&accounts_strct, &accs);
+                    IdlInstruction {
                         name,
                         args,
                         accounts,
@@ -118,9 +120,9 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                             .collect::<Vec<IdlField>>(),
                         _ => panic!("State must be a struct"),
                     };
-                    IdlTypeDef {
+                    IdlTypeDefinition {
                         name: state.name,
-                        ty: IdlTypeDefTy::Struct { fields },
+                        ty: IdlTypeDefinitionTy::Struct { fields },
                     }
                 };
 
@@ -128,12 +130,12 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
             }
         },
     };
-    let error = parse_error_enum(&f).map(|mut e| error::parse(&mut e));
+    let error = parse_error_enum(&f).map(|mut e| error::parse(&mut e, None));
     let error_codes = error.as_ref().map(|e| {
         e.codes
             .iter()
             .map(|code| IdlErrorCode {
-                code: 100 + code.id,
+                code: ERROR_CODE_OFFSET + code.id,
                 name: code.ident.to_string(),
                 msg: code.msg.clone(),
             })
@@ -159,8 +161,8 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                 .collect::<Vec<_>>();
             // todo: don't unwrap
             let accounts_strct = accs.get(&ix.anchor_ident.to_string()).unwrap();
-            let accounts = accounts_strct.idl_accounts(&accs);
-            IdlIx {
+            let accounts = idl_accounts(accounts_strct, &accs);
+            IdlInstruction {
                 name: ix.ident.to_string().to_mixed_case(),
                 accounts,
                 args,
@@ -184,7 +186,7 @@ pub fn parse(filename: impl AsRef<Path>) -> Result<Idl> {
                         Some(i) => parser::tts_to_string(&i.path) == "index",
                     };
                     IdlEventField {
-                        name: f.ident.clone().unwrap().to_string(),
+                        name: f.ident.clone().unwrap().to_string().to_mixed_case(),
                         ty: parser::tts_to_string(&f.ty).to_string().parse().unwrap(),
                         index,
                     }
@@ -345,7 +347,7 @@ fn parse_account_derives(f: &syn::File) -> HashMap<String, AccountsStruct> {
             syn::Item::Struct(i_strct) => {
                 for attr in &i_strct.attrs {
                     if attr.tokens.to_string().contains(DERIVE_NAME) {
-                        let strct = accounts::parse(i_strct);
+                        let strct = accounts::parse(i_strct).expect("Code not parseable");
                         return Some((strct.ident.to_string(), strct));
                     }
                 }
@@ -359,7 +361,7 @@ fn parse_account_derives(f: &syn::File) -> HashMap<String, AccountsStruct> {
 }
 
 // Parse all user defined types in the file.
-fn parse_ty_defs(f: &syn::File) -> Result<Vec<IdlTypeDef>> {
+fn parse_ty_defs(f: &syn::File) -> Result<Vec<IdlTypeDefinition>> {
     f.items
         .iter()
         .filter_map(|i| match i {
@@ -387,9 +389,9 @@ fn parse_ty_defs(f: &syn::File) -> Result<Vec<IdlTypeDef>> {
                         _ => panic!("Only named structs are allowed."),
                     };
 
-                    return Some(fields.map(|fields| IdlTypeDef {
+                    return Some(fields.map(|fields| IdlTypeDefinition {
                         name,
-                        ty: IdlTypeDefTy::Struct { fields },
+                        ty: IdlTypeDefinitionTy::Struct { fields },
                     }));
                 }
                 None
@@ -421,12 +423,12 @@ fn parse_ty_defs(f: &syn::File) -> Result<Vec<IdlTypeDef>> {
                                 Some(EnumFields::Named(fields))
                             }
                         };
-                        EnumVariant { name, fields }
+                        IdlEnumVariant { name, fields }
                     })
-                    .collect::<Vec<EnumVariant>>();
-                Some(Ok(IdlTypeDef {
+                    .collect::<Vec<IdlEnumVariant>>();
+                Some(Ok(IdlTypeDefinition {
                     name,
-                    ty: IdlTypeDefTy::Enum { variants },
+                    ty: IdlTypeDefinitionTy::Enum { variants },
                 }))
             }
             _ => None,
@@ -438,4 +440,31 @@ fn to_idl_type(f: &syn::Field) -> IdlType {
     let mut tts = proc_macro2::TokenStream::new();
     f.ty.to_tokens(&mut tts);
     tts.to_string().parse().unwrap()
+}
+
+fn idl_accounts(
+    accounts: &AccountsStruct,
+    global_accs: &HashMap<String, AccountsStruct>,
+) -> Vec<IdlAccountItem> {
+    accounts
+        .fields
+        .iter()
+        .map(|acc: &AccountField| match acc {
+            AccountField::CompositeField(comp_f) => {
+                let accs_strct = global_accs
+                    .get(&comp_f.symbol)
+                    .expect("Could not resolve Accounts symbol");
+                let accounts = idl_accounts(accs_strct, global_accs);
+                IdlAccountItem::IdlAccounts(IdlAccounts {
+                    name: comp_f.ident.to_string().to_mixed_case(),
+                    accounts,
+                })
+            }
+            AccountField::Field(acc) => IdlAccountItem::IdlAccount(IdlAccount {
+                name: acc.ident.to_string().to_mixed_case(),
+                is_mut: acc.constraints.is_mutable(),
+                is_signer: acc.constraints.is_signer(),
+            }),
+        })
+        .collect::<Vec<_>>()
 }

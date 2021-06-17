@@ -8,7 +8,7 @@ describe('basic-2', () => {
   anchor.setProvider(provider)
 
   // Counter for the tests.
-  const counter = new anchor.web3.Account()
+  const counter = anchor.web3.Keypair.generate()
 
   // Program for the tests.
   const program = anchor.workspace.Basic2
@@ -23,7 +23,7 @@ describe('basic-2', () => {
       instructions: [await program.account.counter.createInstruction(counter)],
     })
 
-    let counterAccount = await program.account.counter(counter.publicKey)
+    let counterAccount = await program.account.counter.fetch(counter.publicKey)
 
     assert.ok(counterAccount.authority.equals(provider.wallet.publicKey))
     assert.ok(counterAccount.count.toNumber() === 0)
@@ -37,7 +37,7 @@ describe('basic-2', () => {
       },
     })
 
-    const counterAccount = await program.account.counter(counter.publicKey)
+    const counterAccount = await program.account.counter.fetch(counter.publicKey)
 
     assert.ok(counterAccount.authority.equals(provider.wallet.publicKey))
     assert.ok(counterAccount.count.toNumber() == 1)
