@@ -2813,6 +2813,7 @@ dependencies = [
 [[package]]
 name = "serum-common"
 version = "0.1.0"
+source = "git+https://github.com/project-serum/serum-dex#9f776c45fa37ec80109ea1f46461a75125f3f334"
 dependencies = [
  "anyhow",
  "arrayref",
