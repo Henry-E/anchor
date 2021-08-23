@@ -9,20 +9,18 @@ use misc2::misc2::MyState as Misc2State;
 pub struct TestTokenSeedsInit<'info> {
     #[account(
         init,
-        mint_decimals = 6,
-        mint_authority = authority,
         seeds = [b"my-mint-seed".as_ref(), &[mint_bump]],
         payer = authority,
-        space = Mint::LEN,
+        mint::decimals = 6,
+        mint::authority = authority,
     )]
     pub mint: CpiAccount<'info, Mint>,
     #[account(
         init,
-        token_mint = mint,
-        token_authority = authority,
         seeds = [b"my-token-seed".as_ref(), &[token_bump]],
         payer = authority,
-        space = TokenAccount::LEN,
+        token::mint = mint,
+        token::authority = authority,
     )]
     pub my_pda: CpiAccount<'info, TokenAccount>,
     pub authority: AccountInfo<'info>,
@@ -50,7 +48,6 @@ pub struct TestPdaInit<'info> {
     pub my_pda: ProgramAccount<'info, DataU16>,
     pub my_payer: AccountInfo<'info>,
     pub foo: AccountInfo<'info>,
-    pub rent: Sysvar<'info, Rent>,
     pub system_program: AccountInfo<'info>,
 }
 
@@ -60,7 +57,6 @@ pub struct TestPdaInitZeroCopy<'info> {
     #[account(init, seeds = [b"my-seed".as_ref(), &[bump]], payer = my_payer)]
     pub my_pda: Loader<'info, DataZeroCopy>,
     pub my_payer: AccountInfo<'info>,
-    pub rent: Sysvar<'info, Rent>,
     pub system_program: AccountInfo<'info>,
 }
 
@@ -81,7 +77,6 @@ pub struct RemainingAccounts {}
 pub struct Initialize<'info> {
     #[account(init)]
     pub data: ProgramAccount<'info, Data>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -114,67 +109,23 @@ pub struct TestClose<'info> {
     sol_dest: AccountInfo<'info>,
 }
 
-// `my_account` is the associated token account being created.
-// `authority` must be a `mut` and `signer` since it will pay for the creation
-// of the associated token account. `state` is used as an association, i.e., one
-// can *optionally* identify targets to be used as seeds for the program
-// derived address by using `with` (and it doesn't have to be a state account).
-// For example, the SPL token program uses a `Mint` account. Lastly,
-// `rent` and `system_program` are *required* by convention, since the
-// accounts are needed when creating the associated program address within
-// the program.
-#[derive(Accounts)]
-pub struct TestInitAssociatedAccount<'info> {
-    #[account(init, associated = authority, with = state, with = data, with = b"my-seed")]
-    pub my_account: ProgramAccount<'info, TestData>,
-    #[account(mut, signer)]
-    pub authority: AccountInfo<'info>,
-    pub state: ProgramState<'info, MyState>,
-    pub data: ProgramAccount<'info, Data>,
-    pub rent: Sysvar<'info, Rent>,
-    pub system_program: AccountInfo<'info>,
-}
-
-#[derive(Accounts)]
-pub struct TestAssociatedAccount<'info> {
-    #[account(mut, associated = authority, with = state, with = data, with = b"my-seed")]
-    pub my_account: ProgramAccount<'info, TestData>,
-    #[account(mut, signer)]
-    pub authority: AccountInfo<'info>,
-    pub state: ProgramState<'info, MyState>,
-    pub data: ProgramAccount<'info, Data>,
-}
-
 #[derive(Accounts)]
 pub struct TestU16<'info> {
     #[account(init)]
     pub my_account: ProgramAccount<'info, DataU16>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
 pub struct TestI16<'info> {
     #[account(init)]
     pub data: ProgramAccount<'info, DataI16>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
 pub struct TestSimulate {}
 
 #[derive(Accounts)]
-pub struct TestSimulateAssociatedAccount<'info> {
-    #[account(init, associated = authority)]
-    pub my_account: ProgramAccount<'info, TestData>,
-    #[account(mut, signer)]
-    pub authority: AccountInfo<'info>,
-    pub rent: Sysvar<'info, Rent>,
-    pub system_program: AccountInfo<'info>,
-}
-
-#[derive(Accounts)]
 pub struct TestI8<'info> {
     #[account(init)]
     pub data: ProgramAccount<'info, DataI8>,
-    pub rent: Sysvar<'info, Rent>,
 }
