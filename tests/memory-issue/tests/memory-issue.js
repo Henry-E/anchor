@@ -10,6 +10,34 @@ describe('memory-issue', () => {
     // Add your test here.
     const program = anchor.workspace.MemoryIssue;
 
+    const [pubkeyAccount] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("pubkey_account")],
+      program.programId
+    );
+    const [anotherPubkeyAccount] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("another_pubkey_account")],
+      program.programId
+    );
+
+    console.log("init struct");
+    await program.rpc.initializeStruct(
+      {
+        accounts: {
+          authority: program.provider.wallet.publicKey,
+          pubkeyAccount,
+          anotherPubkeyAccount,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        }
+      }
+    );
+
+    console.log("init tokens");
+
+    const [openOrders] = await anchor.web3.PublicKey.findProgramAddress(
+      [Buffer.from("open_orders")],
+      program.programId
+    );
+
     const [thisMint] = await anchor.web3.PublicKey.findProgramAddress(
       [Buffer.from("this_mint")],
       program.programId
@@ -40,10 +68,13 @@ describe('memory-issue', () => {
       program.programId
     );
 
-    const tx = await program.rpc.initialize(
+    const tx = await program.rpc.initializeTokens(
       {
         accounts: {
           authority: program.provider.wallet.publicKey,
+          pubkeyAccount,
+          anotherPubkeyAccount,
+          openOrders,
           thisMint,
           token1,
           token2,
